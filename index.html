@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Package ID QR</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: system-ui, sans-serif; background: #fff; color: #111; }
+  .screen {
+    min-height: 100%;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+  }
+  button { touch-action: manipulation; font: inherit; cursor: pointer; }
+  #scan {
+    font-size: 2rem;
+    font-weight: 700;
+    padding: 1.25rem 3rem;
+    border: 0;
+    border-radius: 999px;
+    background: #111;
+    color: #fff;
+  }
+  #scan:disabled { opacity: .4; }
+  #cam { position: relative; background: #000; }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #status {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: .85rem 1rem;
+    text-align: center;
+    color: #fff;
+    background: rgba(0, 0, 0, .5);
+  }
+  #cancel {
+    position: absolute;
+    z-index: 1;
+    bottom: 1.5rem;
+    font-size: 1.1rem;
+    padding: .8rem 1.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: #fff;
+    color: #111;
+  }
+  #qr img { width: min(78vw, 420px); height: auto; image-rendering: pixelated; }
+  #pid {
+    margin: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 1.35rem;
+    letter-spacing: .04em;
+    text-align: center;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main id="home" class="screen">
+  <button id="scan" type="button" disabled>Scan</button>
+</main>
+<section id="cam" class="screen" hidden>
+  <video id="video" autoplay playsinline muted></video>
+  <p id="status">Looking for package ID…</p>
+  <button id="cancel" type="button">Cancel</button>
+</section>
+<section id="result" class="screen" hidden>
+  <div id="qr"></div>
+  <p id="pid"></p>
+</section>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script>
+  const DIGIT_FIX = { O: "0", I: "1", L: "1", S: "5", B: "8" };
+
+  // ponytail: fix O/I/L/S/B only in the 12-digit tail, and 1->T / 8->B only in the TB prefix.
+  // Ceiling: Z/2 and G/6 still miss. Upgrade path: per-character OCR confidence.
+  function findPackageId(text) {
+    const compact = text.toUpperCase().replace(/\s+/g, "");
+    let best = null;
+    let bestCost = 99;
+    for (let i = 0; i <= compact.length - 15; i++) {
+      let cost = 0;
+      let c0 = compact[i];
+      let c1 = compact[i + 1];
+      if (c0 === "1") { c0 = "T"; cost++; }
+      else if (c0 !== "T") continue;
+      if (c1 === "8") { c1 = "B"; cost++; }
+      else if (c1 !== "B") continue;
+      const letter = compact[i + 2];
+      if (letter < "A" || letter > "Z") continue;
+      const tail = compact.slice(i + 3, i + 15);
+      let digits = "";
+      let ok = true;
+      for (const c of tail) {
+        if (c >= "0" && c <= "9") digits += c;
+        else if (DIGIT_FIX[c]) { digits += DIGIT_FIX[c]; cost++; }
+        else { ok = false; break; }
+      }
+      if (!ok) continue;
+      const id = "TB" + letter + digits;
+      if (cost < bestCost) { best = id; bestCost = cost; }
+    }
+    return best;
+  }
+
+  function selfCheck() {
+    const cases = [
+      ["TBC086774826009", "TBC086774826009"],
+      ["tbc086050802009", "TBC086050802009"],
+      ["TBC085237824009", "TBC085237824009"],
+      ["TBC08677\n4826009", "TBC086774826009"],
+      ["TBCO860508020092", "TBC086050802009"],
+      ["TBC086774B26009", "TBC086774826009"],
+      ["18C086774826009", "TBC086774826009"],
+      ["T8C085237824009", "TBC085237824009"],
+      ["TBS086774826009", "TBS086774826009"],
+      ["TBO086774826009", "TBO086774826009"],
+      ["XZEBRASFOO19778143S4I09009XRPSL18C086774826009Q1PDMBAWCOA202DC", "TBC086774826009"],
+      ["YZEBRAV20686S4O7ONBO4AMRP4SPTBC086050802009BBPIDXSBSNSJ0MHN001X11A203AI", "TBC086050802009"],
+      ["QZEBRA680O31T0G0680S4SCPTBC085237824009844265F036414788210062XWCS2C91BC91C44", "TBC085237824009"],
+      ["NSQZEBRA58694190080SCPPT8C085237824009Q84426503641WB47832100620C91BC91C4", "TBC085237824009"],
+      ["SNtSJdgMHN_001_v", null],
+      ["8cbcc442-6510-5641-cbcb-478ae210d62d", null],
+      ["A-20.2D", null],
+      ["TBC123", null],
+    ];
+    for (const [input, expected] of cases) {
+      const got = findPackageId(input);
+      if (got !== expected) {
+        throw new Error("findPackageId(" + JSON.stringify(input) + ") => " + got + ", expected " + expected);
+      }
+    }
+  }
+  selfCheck();
+
+  const home = document.getElementById("home");
+  const cam = document.getElementById("cam");
+  const result = document.getElementById("result");
+  const video = document.getElementById("video");
+  const statusEl = document.getElementById("status");
+  const qrEl = document.getElementById("qr");
+  const pidEl = document.getElementById("pid");
+  const scanBtn = document.getElementById("scan");
+  const thumb = document.createElement("canvas");
+
+  let stream = null;
+  let worker = null;
+  let workerReady = null;
+  let scanning = false;
+  let timer = 0;
+  let generation = 0;
+
+  function show(which) {
+    home.hidden = which !== "home";
+    cam.hidden = which !== "cam";
+    result.hidden = which !== "result";
+  }
+
+  function boxBlur(src, w, h, r) {
+    const tmp = new Uint8Array(src.length);
+    const dst = new Uint8Array(src.length);
+    const div = r * 2 + 1;
+    for (let y = 0; y < h; y++) {
+      let sum = 0;
+      for (let x = -r; x <= r; x++) sum += src[y * w + Math.min(w - 1, Math.max(0, x))];
+      for (let x = 0; x < w; x++) {
+        tmp[y * w + x] = Math.round(sum / div);
+        sum -= src[y * w + Math.min(w - 1, Math.max(0, x - r))];
+        sum += src[y * w + Math.min(w - 1, Math.max(0, x + r + 1))];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      for (let y = -r; y <= r; y++) sum += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+      for (let y = 0; y < h; y++) {
+        dst[y * w + x] = Math.round(sum / div);
+        sum -= tmp[Math.min(h - 1, Math.max(0, y - r)) * w + x];
+        sum += tmp[Math.min(h - 1, Math.max(0, y + r + 1)) * w + x];
+      }
+    }
+    return dst;
+  }
+
+  // ponytail: 5-degree sweep on thin dark strokes, same sign as PIL rotate (counter-clockwise).
+  // Ceiling: a blank or glare-only frame returns 0 and this pass misses. Upgrade path: OSD deskew.
+  function detectAngle() {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return 0;
+    const scale = 360 / Math.max(vw, vh);
+    const w = Math.max(1, Math.round(vw * scale));
+    const h = Math.max(1, Math.round(vh * scale));
+    thumb.width = w;
+    thumb.height = h;
+    const ctx = thumb.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const gray = new Uint8Array(w * h);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      gray[p] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+    }
+    const blur = boxBlur(gray, w, h, 3);
+    const xs = [];
+    const ys = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const p = y * w + x;
+        if (gray[p] < 140 && blur[p] > 160) { xs.push(x); ys.push(y); }
+      }
+    }
+    if (xs.length < 30) return 0;
+    const cx = w / 2;
+    const cy = h / 2;
+    let bestA = 0;
+    let bestV = -1;
+    for (let a = -90; a <= 90; a += 5) {
+      const rad = a * Math.PI / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      let minY = Infinity;
+      let maxY = -Infinity;
+      const yp = new Int16Array(xs.length);
+      for (let i = 0; i < xs.length; i++) {
+        const yy = Math.round(-sin * (xs[i] - cx) + cos * (ys[i] - cy));
+        yp[i] = yy;
+        if (yy < minY) minY = yy;
+        if (yy > maxY) maxY = yy;
+      }
+      const hist = new Float64Array(maxY - minY + 1);
+      for (let i = 0; i < yp.length; i++) hist[yp[i] - minY]++;
+      let mean = 0;
+      for (let i = 0; i < hist.length; i++) mean += hist[i];
+      mean /= hist.length;
+      let v = 0;
+      for (let i = 0; i < hist.length; i++) {
+        const d = hist[i] - mean;
+        v += d * d;
+      }
+      v /= hist.length;
+      if (v > bestV) { bestV = v; bestA = a; }
+    }
+    return bestA;
+  }
+
+  function grayscale(rgba) {
+    for (let i = 0; i < rgba.length; i += 4) {
+      const y = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+      rgba[i] = rgba[i + 1] = rgba[i + 2] = y;
+    }
+  }
+
+  function median3(rgba, w, h) {
+    const src = new Uint8Array(w * h);
+    for (let p = 0, i = 0; p < src.length; p++, i += 4) src[p] = rgba[i];
+    const dst = new Uint8Array(src.length);
+    const win = new Uint8Array(9);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let k = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = Math.min(h - 1, Math.max(0, y + dy));
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = Math.min(w - 1, Math.max(0, x + dx));
+            win[k++] = src[yy * w + xx];
+          }
+        }
+        win.sort();
+        dst[y * w + x] = win[4];
+      }
+    }
+    for (let p = 0, i = 0; p < dst.length; p++, i += 4) {
+      rgba[i] = rgba[i + 1] = rgba[i + 2] = dst[p];
+      rgba[i + 3] = 255;
+    }
+  }
+
+  function autocontrast(rgba) {
+    const hist = new Uint32Array(256);
+    const n = rgba.length >> 2;
+    for (let i = 0; i < rgba.length; i += 4) hist[rgba[i]]++;
+    const skip = Math.floor(n * 0.01);
+    let lo = 0;
+    let hi = 255;
+    let seen = 0;
+    for (let i = 0; i < 256; i++) {
+      seen += hist[i];
+      if (seen > skip) { lo = i; break; }
+    }
+    seen = 0;
+    for (let i = 255; i >= 0; i--) {
+      seen += hist[i];
+      if (seen > skip) { hi = i; break; }
+    }
+    if (hi <= lo) return;
+    const scale = 255 / (hi - lo);
+    for (let i = 0; i < rgba.length; i += 4) {
+      const v = Math.max(0, Math.min(255, Math.round((rgba[i] - lo) * scale)));
+      rgba[i] = rgba[i + 1] = rgba[i + 2] = v;
+    }
+  }
+
+  function prepareFrame() {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return null;
+    const angle = detectAngle();
+    const fit = Math.min(3, 1600 / Math.max(vw, vh));
+    const dw = Math.max(1, Math.round(vw * fit));
+    const dh = Math.max(1, Math.round(vh * fit));
+    const rad = -angle * Math.PI / 180;
+    const c = Math.abs(Math.cos(rad));
+    const s = Math.abs(Math.sin(rad));
+    const cw = Math.max(1, Math.round(dw * c + dh * s));
+    const ch = Math.max(1, Math.round(dw * s + dh * c));
+    const canvas = document.createElement("canvas");
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.translate(cw / 2, ch / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(video, -dw / 2, -dh / 2, dw, dh);
+    const img = ctx.getImageData(0, 0, cw, ch);
+    grayscale(img.data);
+    median3(img.data, cw, ch);
+    autocontrast(img.data);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+  }
+
+  function getWorker() {
+    if (!workerReady) {
+      workerReady = Tesseract.createWorker("eng", 1, { logger() {} }, {
+        load_system_dawg: "0",
+        load_freq_dawg: "0",
+      })
+        .then(async (w) => {
+          await w.setParameters({
+            tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            tessedit_pageseg_mode: "6",
+          });
+          worker = w;
+          return w;
+        })
+        .catch((err) => {
+          workerReady = null;
+          throw err;
+        });
+    }
+    return workerReady;
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) {
+      for (const track of stream.getTracks()) track.stop();
+      stream = null;
+    }
+    video.srcObject = null;
+  }
+
+  function showResult(id) {
+    const gen = ++generation;
+    stopCamera();
+    const qr = qrcode(0, "M");
+    qr.addData(id);
+    qr.make();
+    qrEl.innerHTML = qr.createImgTag(8, 4);
+    pidEl.textContent = id;
+    show("result");
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (generation !== gen) return;
+      show("home");
+    }, 5000);
+  }
+
+  async function tick(gen) {
+    if (!scanning || gen !== generation) return;
+    if (video.readyState < 2) {
+      setTimeout(() => tick(gen), 200);
+      return;
+    }
+    statusEl.textContent = worker ? "Looking for package ID…" : "Loading reader…";
+    const frame = prepareFrame();
+    if (!frame) {
+      setTimeout(() => tick(gen), 200);
+      return;
+    }
+    try {
+      const w = await getWorker();
+      if (!scanning || gen !== generation) return;
+      const { data } = await w.recognize(frame);
+      if (!scanning || gen !== generation) return;
+      const id = findPackageId(data.text || "");
+      if (id) {
+        showResult(id);
+        return;
+      }
+    } catch (err) {
+      if (scanning && gen === generation) statusEl.textContent = "Looking for package ID…";
+    }
+    if (scanning && gen === generation) setTimeout(() => tick(gen), 500);
+  }
+
+  scanBtn.onclick = async () => {
+    if (typeof Tesseract === "undefined" || typeof qrcode !== "function") {
+      alert("The scanner libraries failed to load. Check your connection.");
+      return;
+    }
+    clearTimeout(timer);
+    const gen = ++generation;
+    statusEl.textContent = "Loading reader…";
+    scanBtn.disabled = true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+    } catch (err) {
+      scanBtn.disabled = false;
+      alert("Could not open the camera. Use HTTPS or localhost, and allow camera access.");
+      return;
+    }
+    if (gen !== generation) {
+      for (const track of stream.getTracks()) track.stop();
+      stream = null;
+      scanBtn.disabled = false;
+      return;
+    }
+    video.srcObject = stream;
+    video.playsInline = true;
+    await video.play();
+    scanning = true;
+    show("cam");
+    scanBtn.disabled = false;
+    getWorker();
+    tick(gen);
+  };
+
+  document.getElementById("cancel").onclick = () => {
+    generation++;
+    clearTimeout(timer);
+    stopCamera();
+    show("home");
+  };
+
+  scanBtn.disabled = false;
+</script>
+</body>
+</html>
