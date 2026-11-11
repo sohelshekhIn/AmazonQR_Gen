@@ -2,50 +2,107 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Package ID QR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Package QR">
+<title>Amazon Package QR Scanner</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
-  body { font-family: system-ui, sans-serif; background: #fff; color: #111; }
+  body {
+    font-family: system-ui, sans-serif;
+    background: #fff;
+    color: #111;
+    display: flex;
+    flex-direction: column;
+  }
+  .nav {
+    flex: none;
+    margin: 0;
+    padding: max(.85rem, env(safe-area-inset-top)) 1rem .85rem;
+    background: #111;
+    color: #fff;
+    text-align: center;
+    font-size: 1.05rem;
+    font-weight: 700;
+  }
   .screen {
-    min-height: 100%;
-    min-height: 100dvh;
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 1rem;
+    padding: 1.25rem;
+    overflow: auto;
   }
   button { touch-action: manipulation; font: inherit; cursor: pointer; }
-  #scan {
-    font-size: 2rem;
+  #scan, #dismiss {
+    font-size: 1.35rem;
     font-weight: 700;
-    padding: 1.25rem 3rem;
+    padding: 1rem 2.4rem;
     border: 0;
     border-radius: 999px;
     background: #111;
     color: #fff;
   }
+  #scan { font-size: 2rem; padding: 1.25rem 3rem; }
   #scan:disabled { opacity: .4; }
-  #cam { position: relative; background: #000; }
+  body { overflow: hidden; }
+  #cam { position: relative; padding: 0; background: #000; overflow: hidden; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
-  #status {
+  #veil {
     position: absolute;
+    inset: 0;
     z-index: 1;
-    top: 0;
-    left: 0;
-    right: 0;
-    margin: 0;
-    padding: .85rem 1rem;
-    text-align: center;
-    color: #fff;
-    background: rgba(0, 0, 0, .5);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: .6rem;
+    padding: .75rem 1rem max(1rem, env(safe-area-inset-bottom));
+    pointer-events: none;
   }
-  #cancel {
+  #finder {
+    position: relative;
+    flex: 1 1 auto;
+    width: min(86%, 440px);
+    max-height: 100%;
+    aspect-ratio: 3 / 4;
+    border-radius: 1.25rem;
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .55);
+  }
+  #finder span {
     position: absolute;
-    z-index: 1;
-    bottom: 1.5rem;
+    width: 1.6rem;
+    height: 1.6rem;
+    border: 3px solid #fff;
+  }
+  #finder span:nth-child(1) { top: .55rem; left: .55rem; border-right: 0; border-bottom: 0; border-radius: .35rem 0 0 0; }
+  #finder span:nth-child(2) { top: .55rem; right: .55rem; border-left: 0; border-bottom: 0; border-radius: 0 .35rem 0 0; }
+  #finder span:nth-child(3) { bottom: .55rem; left: .55rem; border-right: 0; border-top: 0; border-radius: 0 0 0 .35rem; }
+  #finder span:nth-child(4) { bottom: .55rem; right: .55rem; border-left: 0; border-top: 0; border-radius: 0 0 .35rem 0; }
+  #status, #hint {
+    flex: none;
+    margin: 0;
+    max-width: 92%;
+    padding: .4rem .75rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .6);
+    color: #fff;
+    text-align: center;
+  }
+  #hint { font-size: 1rem; font-weight: 600; }
+  #status { font-size: .95rem; opacity: .95; }
+  #cancel {
+    pointer-events: auto;
+    flex: none;
     font-size: 1.1rem;
     padding: .8rem 1.6rem;
     border: 0;
@@ -53,7 +110,7 @@
     background: #fff;
     color: #111;
   }
-  #qr img { width: min(78vw, 420px); height: auto; image-rendering: pixelated; }
+  #qr img { width: min(52dvh, 78vw, 340px); height: auto; image-rendering: pixelated; }
   #pid {
     margin: 0;
     font-family: ui-monospace, monospace;
@@ -65,17 +122,23 @@
 </style>
 </head>
 <body>
+<header class="nav">Amazon Package QR Scanner</header>
 <main id="home" class="screen">
   <button id="scan" type="button" disabled>Scan</button>
 </main>
 <section id="cam" class="screen" hidden>
   <video id="video" autoplay playsinline muted></video>
-  <p id="status">Looking for package ID…</p>
-  <button id="cancel" type="button">Cancel</button>
+  <div id="veil">
+    <p id="status">Looking for package ID…</p>
+    <div id="finder" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <p id="hint">Fit the scanner screen in the frame</p>
+    <button id="cancel" type="button">Cancel</button>
+  </div>
 </section>
 <section id="result" class="screen" hidden>
   <div id="qr"></div>
   <p id="pid"></p>
+  <button id="dismiss" type="button">Dismiss</button>
 </section>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
@@ -193,17 +256,40 @@
 
   // ponytail: 5-degree sweep on thin dark strokes, same sign as PIL rotate (counter-clockwise).
   // Ceiling: a blank or glare-only frame returns 0 and this pass misses. Upgrade path: OSD deskew.
-  function detectAngle() {
+  function sourceRect() {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-    if (!vw || !vh) return 0;
-    const scale = 360 / Math.max(vw, vh);
-    const w = Math.max(1, Math.round(vw * scale));
-    const h = Math.max(1, Math.round(vh * scale));
+    const full = { x: 0, y: 0, w: vw, h: vh };
+    const finder = document.getElementById("finder");
+    if (!vw || !vh || !finder) return full;
+    const box = video.getBoundingClientRect();
+    const frame = finder.getBoundingClientRect();
+    if (!box.width || !box.height || frame.width < 8 || frame.height < 8) return full;
+    const scale = Math.max(box.width / vw, box.height / vh);
+    const offX = (box.width - vw * scale) / 2;
+    const offY = (box.height - vh * scale) / 2;
+    let x = (frame.left - box.left - offX) / scale;
+    let y = (frame.top - box.top - offY) / scale;
+    let w = frame.width / scale;
+    let h = frame.height / scale;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > vw) w = vw - x;
+    if (y + h > vh) h = vh - y;
+    if (w < 8 || h < 8) return full;
+    return { x, y, w, h };
+  }
+
+  function detectAngle() {
+    const src = sourceRect();
+    if (!src.w || !src.h) return 0;
+    const scale = 360 / Math.max(src.w, src.h);
+    const w = Math.max(1, Math.round(src.w * scale));
+    const h = Math.max(1, Math.round(src.h * scale));
     thumb.width = w;
     thumb.height = h;
     const ctx = thumb.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(video, 0, 0, w, h);
+    ctx.drawImage(video, src.x, src.y, src.w, src.h, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
     const gray = new Uint8Array(w * h);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
@@ -310,13 +396,12 @@
   }
 
   function prepareFrame() {
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    if (!vw || !vh) return null;
+    const src = sourceRect();
+    if (!src.w || !src.h) return null;
     const angle = detectAngle();
-    const fit = Math.min(3, 1600 / Math.max(vw, vh));
-    const dw = Math.max(1, Math.round(vw * fit));
-    const dh = Math.max(1, Math.round(vh * fit));
+    const fit = Math.min(3, 1600 / Math.max(src.w, src.h));
+    const dw = Math.max(1, Math.round(src.w * fit));
+    const dh = Math.max(1, Math.round(src.h * fit));
     const rad = -angle * Math.PI / 180;
     const c = Math.abs(Math.cos(rad));
     const s = Math.abs(Math.sin(rad));
@@ -330,7 +415,7 @@
     ctx.fillRect(0, 0, cw, ch);
     ctx.translate(cw / 2, ch / 2);
     ctx.rotate(rad);
-    ctx.drawImage(video, -dw / 2, -dh / 2, dw, dh);
+    ctx.drawImage(video, src.x, src.y, src.w, src.h, -dw / 2, -dh / 2, dw, dh);
     const img = ctx.getImageData(0, 0, cw, ch);
     grayscale(img.data);
     median3(img.data, cw, ch);
@@ -393,7 +478,7 @@
       setTimeout(() => tick(gen), 200);
       return;
     }
-    statusEl.textContent = worker ? "Looking for package ID…" : "Loading reader…";
+    statusEl.textContent = worker ? "Reading…" : "Loading reader…";
     const frame = prepareFrame();
     if (!frame) {
       setTimeout(() => tick(gen), 200);
@@ -410,7 +495,7 @@
         return;
       }
     } catch (err) {
-      if (scanning && gen === generation) statusEl.textContent = "Looking for package ID…";
+      if (scanning && gen === generation) statusEl.textContent = "Reading…";
     }
     if (scanning && gen === generation) setTimeout(() => tick(gen), 500);
   }
@@ -454,12 +539,19 @@
     tick(gen);
   };
 
-  document.getElementById("cancel").onclick = () => {
+  function backHome() {
     generation++;
     clearTimeout(timer);
     stopCamera();
     show("home");
-  };
+  }
+
+  document.getElementById("cancel").onclick = backHome;
+  document.getElementById("dismiss").onclick = backHome;
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 
   scanBtn.disabled = false;
 </script>
