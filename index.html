@@ -345,31 +345,6 @@
     }
   }
 
-  function median3(rgba, w, h) {
-    const src = new Uint8Array(w * h);
-    for (let p = 0, i = 0; p < src.length; p++, i += 4) src[p] = rgba[i];
-    const dst = new Uint8Array(src.length);
-    const win = new Uint8Array(9);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        let k = 0;
-        for (let dy = -1; dy <= 1; dy++) {
-          const yy = Math.min(h - 1, Math.max(0, y + dy));
-          for (let dx = -1; dx <= 1; dx++) {
-            const xx = Math.min(w - 1, Math.max(0, x + dx));
-            win[k++] = src[yy * w + xx];
-          }
-        }
-        win.sort();
-        dst[y * w + x] = win[4];
-      }
-    }
-    for (let p = 0, i = 0; p < dst.length; p++, i += 4) {
-      rgba[i] = rgba[i + 1] = rgba[i + 2] = dst[p];
-      rgba[i + 3] = 255;
-    }
-  }
-
   function autocontrast(rgba) {
     const hist = new Uint32Array(256);
     const n = rgba.length >> 2;
@@ -399,28 +374,34 @@
     const src = sourceRect();
     if (!src.w || !src.h) return null;
     const angle = detectAngle();
-    const fit = Math.min(3, 1600 / Math.max(src.w, src.h));
+    // ponytail: cap the long side at 960 and never enlarge. OCR time follows pixel count.
+    // Ceiling: a scanner that stays tiny in the frame can miss. Upgrade path: one larger retry after several misses.
+    const long = Math.max(src.w, src.h);
+    const fit = long > 960 ? 960 / long : 1;
     const dw = Math.max(1, Math.round(src.w * fit));
     const dh = Math.max(1, Math.round(src.h * fit));
-    const rad = -angle * Math.PI / 180;
-    const c = Math.abs(Math.cos(rad));
-    const s = Math.abs(Math.sin(rad));
-    const cw = Math.max(1, Math.round(dw * c + dh * s));
-    const ch = Math.max(1, Math.round(dw * s + dh * c));
     const canvas = document.createElement("canvas");
-    canvas.width = cw;
-    canvas.height = ch;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, cw, ch);
-    ctx.translate(cw / 2, ch / 2);
-    ctx.rotate(rad);
-    ctx.drawImage(video, src.x, src.y, src.w, src.h, -dw / 2, -dh / 2, dw, dh);
-    const img = ctx.getImageData(0, 0, cw, ch);
+    if (!angle) {
+      canvas.width = dw;
+      canvas.height = dh;
+      ctx.drawImage(video, src.x, src.y, src.w, src.h, 0, 0, dw, dh);
+    } else {
+      const rad = -angle * Math.PI / 180;
+      const c = Math.abs(Math.cos(rad));
+      const s = Math.abs(Math.sin(rad));
+      canvas.width = Math.max(1, Math.round(dw * c + dh * s));
+      canvas.height = Math.max(1, Math.round(dw * s + dh * c));
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(video, src.x, src.y, src.w, src.h, -dw / 2, -dh / 2, dw, dh);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     grayscale(img.data);
-    median3(img.data, cw, ch);
     autocontrast(img.data);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.putImageData(img, 0, 0);
     return canvas;
   }
@@ -497,7 +478,7 @@
     } catch (err) {
       if (scanning && gen === generation) statusEl.textContent = "Reading…";
     }
-    if (scanning && gen === generation) setTimeout(() => tick(gen), 500);
+    if (scanning && gen === generation) setTimeout(() => tick(gen), 0);
   }
 
   scanBtn.onclick = async () => {
@@ -552,6 +533,7 @@
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
+  if (typeof Tesseract !== "undefined") getWorker();
 
   scanBtn.disabled = false;
 </script>
