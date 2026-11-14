@@ -11,6 +11,17 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<script>
+!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
+  api_host: "https://us.i.posthog.com",
+  person_profiles: "identified_only",
+  capture_pageview: false,
+  capture_pageleave: false,
+  autocapture: false,
+  disable_session_recording: true
+});
+</script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
@@ -445,6 +456,7 @@
     qr.make();
     qrEl.innerHTML = qr.createImgTag(8, 4);
     pidEl.textContent = id;
+    track("scan_success");
     show("result");
     clearTimeout(timer);
     timer = setTimeout(() => {
@@ -481,11 +493,36 @@
     if (scanning && gen === generation) setTimeout(() => tick(gen), 0);
   }
 
+  let networkOrg = "";
+  let visitSent = false;
+
+  function track(event) {
+    if (!window.posthog || !posthog.capture) return;
+    const props = {};
+    if (networkOrg) props.network_org = networkOrg;
+    posthog.capture(event, props);
+  }
+
+  function trackVisit() {
+    if (visitSent) return;
+    visitSent = true;
+    if (networkOrg && posthog.register) posthog.register({ network_org: networkOrg });
+    track("$pageview");
+  }
+
+  fetch("https://ipinfo.io/json")
+    .then((res) => res.ok ? res.json() : null)
+    .then((data) => { if (data && data.org) networkOrg = data.org; })
+    .catch(() => {})
+    .finally(trackVisit);
+  setTimeout(trackVisit, 2500);
+
   scanBtn.onclick = async () => {
     if (typeof Tesseract === "undefined" || typeof qrcode !== "function") {
       alert("The scanner libraries failed to load. Check your connection.");
       return;
     }
+    track("scan_started");
     clearTimeout(timer);
     const gen = ++generation;
     statusEl.textContent = "Loading reader…";
