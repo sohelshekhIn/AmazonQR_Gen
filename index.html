@@ -294,6 +294,9 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
       ["A-20.2D", null],
       ["TBC123", null],
     ];
+    if (darkest(255, 250, 30) !== 30 || darkest(20, 240, 240) !== 20) {
+      throw new Error("darkest channel");
+    }
     for (const [input, expected] of cases) {
       const got = findPackageId(input);
       if (got !== expected) {
@@ -320,6 +323,11 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
   let scanning = false;
   let timer = 0;
   let generation = 0;
+  let frameBright = false;
+  let brightStreak = 0;
+  let exposure = null;
+  const frameCanvas = document.createElement("canvas");
+  const frameCtx = frameCanvas.getContext("2d", { willReadFrequently: true });
 
   function show(which) {
     home.hidden = which !== "home";
@@ -395,8 +403,18 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     ctx.drawImage(video, src.x, src.y, src.w, src.h, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
     const gray = new Uint8Array(w * h);
+    const hist = new Uint32Array(256);
     for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-      gray[p] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+      const v = darkest(data[i], data[i + 1], data[i + 2]);
+      gray[p] = v;
+      hist[v]++;
+    }
+    const span = levels(hist, gray.length);
+    if (span.hi > span.lo) {
+      const scale = 255 / (span.hi - span.lo);
+      for (let i = 0; i < gray.length; i++) {
+        gray[i] = Math.max(0, Math.min(255, Math.round((gray[i] - span.lo) * scale)));
+      }
     }
     const blur = boxBlur(gray, w, h, 3);
     const xs = [];
@@ -441,17 +459,13 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     return bestA;
   }
 
-  function grayscale(rgba) {
-    for (let i = 0; i < rgba.length; i += 4) {
-      const y = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
-      rgba[i] = rgba[i + 1] = rgba[i + 2] = y;
-    }
+  // ponytail: the darkest channel survives when white balance clips the others.
+  // Ceiling: glare that clips red, green, and blue still needs a tilt. Upgrade path: metered exposure burst.
+  function darkest(r, g, b) {
+    return r < g ? (r < b ? r : b) : (g < b ? g : b);
   }
 
-  function autocontrast(rgba) {
-    const hist = new Uint32Array(256);
-    const n = rgba.length >> 2;
-    for (let i = 0; i < rgba.length; i += 4) hist[rgba[i]]++;
+  function levels(hist, n) {
     const skip = Math.floor(n * 0.01);
     let lo = 0;
     let hi = 255;
@@ -465,10 +479,23 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
       seen += hist[i];
       if (seen > skip) { hi = i; break; }
     }
-    if (hi <= lo) return;
-    const scale = 255 / (hi - lo);
+    return { lo: lo, hi: hi, blown: lo > 180 && hi > 245 };
+  }
+
+  function flatten(rgba) {
+    const hist = new Uint32Array(256);
+    const n = rgba.length >> 2;
     for (let i = 0; i < rgba.length; i += 4) {
-      const v = Math.max(0, Math.min(255, Math.round((rgba[i] - lo) * scale)));
+      const v = darkest(rgba[i], rgba[i + 1], rgba[i + 2]);
+      rgba[i] = rgba[i + 1] = rgba[i + 2] = v;
+      hist[v]++;
+    }
+    const span = levels(hist, n);
+    frameBright = span.blown;
+    if (span.hi <= span.lo) return;
+    const scale = 255 / (span.hi - span.lo);
+    for (let i = 0; i < rgba.length; i += 4) {
+      const v = Math.max(0, Math.min(255, Math.round((rgba[i] - span.lo) * scale)));
       rgba[i] = rgba[i + 1] = rgba[i + 2] = v;
     }
   }
@@ -483,8 +510,8 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     const fit = long > 960 ? 960 / long : 1;
     const dw = Math.max(1, Math.round(src.w * fit));
     const dh = Math.max(1, Math.round(src.h * fit));
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const canvas = frameCanvas;
+    const ctx = frameCtx;
     if (!angle) {
       canvas.width = dw;
       canvas.height = dh;
@@ -503,10 +530,54 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    grayscale(img.data);
-    autocontrast(img.data);
+    flatten(img.data);
     ctx.putImageData(img, 0, 0);
     return canvas;
+  }
+
+  function applyTrack(track, adv) {
+    if (!track || !Object.keys(adv).length) return;
+    track.applyConstraints({ advanced: [adv] }).catch(() => {});
+  }
+
+  function tuneCamera(track) {
+    exposure = null;
+    brightStreak = 0;
+    if (!track || !track.getCapabilities) return;
+    let caps;
+    try { caps = track.getCapabilities(); } catch (err) { return; }
+    const adv = {};
+    if (caps.focusMode && caps.focusMode.indexOf("continuous") >= 0) adv.focusMode = "continuous";
+    if (caps.exposureMode && caps.exposureMode.indexOf("continuous") >= 0) adv.exposureMode = "continuous";
+    const comp = caps.exposureCompensation;
+    if (comp && comp.max > comp.min) {
+      const step = comp.step || 0.1;
+      let value = comp.min + (comp.max - comp.min) * 0.35;
+      value = Math.round(value / step) * step;
+      value = Math.max(comp.min, Math.min(comp.max, value));
+      adv.exposureCompensation = value;
+      exposure = { track: track, min: comp.min, max: comp.max, step: step, value: value };
+    }
+    applyTrack(track, adv);
+    const temp = caps.colorTemperature;
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.indexOf("manual") >= 0 && temp && temp.max > temp.min) {
+      const kelvin = Math.max(temp.min, Math.min(temp.max, 6500));
+      applyTrack(track, { whiteBalanceMode: "manual", colorTemperature: kelvin });
+    } else if (caps.whiteBalanceMode && caps.whiteBalanceMode.indexOf("continuous") >= 0) {
+      applyTrack(track, { whiteBalanceMode: "continuous" });
+    }
+  }
+
+  function darken() {
+    if (!exposure) return;
+    const track = exposure.track;
+    let value = exposure.value - Math.max(exposure.step, (exposure.max - exposure.min) * 0.15);
+    value = Math.round(value / exposure.step) * exposure.step;
+    value = Math.max(exposure.min, Math.min(exposure.max, value));
+    if (value === exposure.value) return;
+    track.applyConstraints({ advanced: [{ exposureCompensation: value }] })
+      .then(() => { if (exposure && exposure.track === track) exposure.value = value; })
+      .catch(() => {});
   }
 
   function getWorker() {
@@ -538,6 +609,8 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
       stream = null;
     }
     video.srcObject = null;
+    exposure = null;
+    brightStreak = 0;
   }
 
   function showResult(id) {
@@ -563,11 +636,18 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
       setTimeout(() => tick(gen), 200);
       return;
     }
-    statusEl.textContent = worker ? "Reading…" : "Loading reader…";
     const frame = prepareFrame();
     if (!frame) {
       setTimeout(() => tick(gen), 200);
       return;
+    }
+    if (frameBright) {
+      brightStreak++;
+      statusEl.textContent = "Tilt off the glare";
+      if (brightStreak === 4 || brightStreak === 8) darken();
+    } else {
+      brightStreak = 0;
+      statusEl.textContent = worker ? "Reading…" : "Loading reader…";
     }
     try {
       const w = await getWorker();
@@ -609,6 +689,38 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     .finally(trackVisit);
   setTimeout(trackVisit, 2500);
 
+  function cameraNote() {
+    if (!window.isSecureContext) {
+      return "Safari will not show the camera prompt here. Open https://" + location.hostname + ":8443, continue past the certificate warning, then tap Scan.";
+    }
+    return "Safari will not ask again. Tap AA in the address bar, open Website Settings, set Camera to Allow, then tap Scan.";
+  }
+
+  function openCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      note(cameraNote(), true);
+      return Promise.resolve(null);
+    }
+    return navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+    }).catch((err) => {
+      const name = err && err.name;
+      if (name === "OverconstrainedError" || name === "NotFoundError") {
+        return navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+      }
+      note(cameraNote(), true);
+      return null;
+    }).catch(() => {
+      note(cameraNote(), true);
+      return null;
+    });
+  }
+
   scanBtn.onclick = async () => {
     if (typeof Tesseract === "undefined" || typeof qrcode !== "function") {
       note("The scanner failed to load. Check your connection, then try Scan again.", true);
@@ -620,18 +732,9 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     statusEl.textContent = "Loading reader…";
     note("Point the camera at the scanner screen.");
     scanBtn.disabled = true;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-      });
-    } catch (err) {
+    stream = await openCamera();
+    if (!stream) {
       scanBtn.disabled = false;
-      note("Could not open the camera. Allow camera access, then try Scan again.", true);
       return;
     }
     if (gen !== generation) {
@@ -643,6 +746,7 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     video.srcObject = stream;
     video.playsInline = true;
     await video.play();
+    tuneCamera(stream.getVideoTracks()[0]);
     scanning = true;
     show("cam");
     scanBtn.disabled = false;
@@ -666,7 +770,8 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
   }
   if (typeof Tesseract !== "undefined") getWorker();
 
-  note("Point the camera at the scanner screen.");
+  if (window.isSecureContext) note("Point the camera at the scanner screen.");
+  else note(cameraNote(), true);
   scanBtn.disabled = false;
 </script>
 </body>
