@@ -25,13 +25,18 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     font-family: system-ui, sans-serif;
     background: #fff;
     color: #111;
+    color-scheme: light;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
+  ::selection { background: #111; color: #fff; }
   .nav {
     flex: none;
     margin: 0;
@@ -39,8 +44,10 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     background: #111;
     color: #fff;
     text-align: center;
-    font-size: 1.05rem;
+    text-wrap: balance;
+    font-size: clamp(.95rem, 3.5vw, 1.05rem);
     font-weight: 700;
+    letter-spacing: -0.01em;
   }
   .screen {
     flex: 1;
@@ -49,12 +56,28 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
-    padding: 1.25rem;
+    gap: 1.25rem;
+    padding: 1.25rem 1.25rem max(1.25rem, env(safe-area-inset-bottom));
     overflow: auto;
   }
-  button { touch-action: manipulation; font: inherit; cursor: pointer; }
+  button {
+    touch-action: manipulation;
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:focus { outline: none; }
+  button:focus-visible {
+    outline: 3px solid #111;
+    outline-offset: 4px;
+  }
+  button:active:not(:disabled) { transform: scale(.98); }
+  @media (hover: hover) {
+    #scan:hover:not(:disabled), #dismiss:hover { background: #2a2a2a; }
+    #cancel:hover { background: #f3f3f3; }
+  }
   #scan, #dismiss {
+    min-height: 3.25rem;
     font-size: 1.35rem;
     font-weight: 700;
     padding: 1rem 2.4rem;
@@ -63,9 +86,18 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     background: #111;
     color: #fff;
   }
-  #scan { font-size: 2rem; padding: 1.25rem 3rem; }
-  #scan:disabled { opacity: .4; }
-  body { overflow: hidden; }
+  #scan { min-height: 4.5rem; min-width: 11rem; font-size: 2rem; padding: 1.25rem 3rem; }
+  #scan:disabled { opacity: .45; cursor: default; }
+  #note {
+    margin: 0;
+    max-width: 22rem;
+    text-align: center;
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #111;
+  }
+  #note.error { color: #7f1d1d; }
   #cam { position: relative; padding: 0; background: #000; overflow: hidden; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
   #veil {
@@ -79,10 +111,11 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     gap: .6rem;
     padding: .75rem 1rem max(1rem, env(safe-area-inset-bottom));
     pointer-events: none;
+    container-type: size;
   }
   #finder {
     position: relative;
-    flex: 1 1 auto;
+    flex: none;
     width: min(86%, 440px);
     max-height: 100%;
     aspect-ratio: 3 / 4;
@@ -93,41 +126,89 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     position: absolute;
     width: 1.6rem;
     height: 1.6rem;
-    border: 3px solid #fff;
+    border: 3px solid #ffe14a;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .7);
+  }
+  @supports (width: 1cqw) {
+    #finder { width: min(86cqw, 440px, max(4.5rem, calc((100cqh - 11rem) * .75))); max-height: none; }
   }
   #finder span:nth-child(1) { top: .55rem; left: .55rem; border-right: 0; border-bottom: 0; border-radius: .35rem 0 0 0; }
   #finder span:nth-child(2) { top: .55rem; right: .55rem; border-left: 0; border-bottom: 0; border-radius: 0 .35rem 0 0; }
   #finder span:nth-child(3) { bottom: .55rem; left: .55rem; border-right: 0; border-top: 0; border-radius: 0 0 0 .35rem; }
   #finder span:nth-child(4) { bottom: .55rem; right: .55rem; border-left: 0; border-top: 0; border-radius: 0 0 .35rem 0; }
   #status, #hint {
+    position: relative;
+    z-index: 1;
     flex: none;
     margin: 0;
     max-width: 92%;
-    padding: .4rem .75rem;
+    padding: .45rem .85rem;
     border-radius: 999px;
-    background: rgba(0, 0, 0, .6);
+    background: #111;
     color: #fff;
     text-align: center;
   }
   #hint { font-size: 1rem; font-weight: 600; }
-  #status { font-size: .95rem; opacity: .95; }
+  #status { font-size: .95rem; font-weight: 600; }
   #cancel {
     pointer-events: auto;
+    position: relative;
+    z-index: 1;
     flex: none;
+    min-height: 3rem;
+    min-width: 8.5rem;
     font-size: 1.1rem;
+    font-weight: 700;
     padding: .8rem 1.6rem;
     border: 0;
     border-radius: 999px;
     background: #fff;
     color: #111;
   }
-  #qr img { width: min(52dvh, 78vw, 340px); height: auto; image-rendering: pixelated; }
+  #cam button:focus-visible { outline-color: #ffe14a; }
+  .ticket {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .7rem;
+    width: min(52dvh, 78vw, 340px);
+  }
+  #qr { line-height: 0; }
+  #qr img { width: 100%; height: auto; image-rendering: pixelated; }
   #pid {
     margin: 0;
     font-family: ui-monospace, monospace;
     font-size: 1.35rem;
+    font-weight: 700;
     letter-spacing: .04em;
     text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  #holdnote {
+    margin: 0;
+    font-size: .95rem;
+    font-weight: 600;
+    color: #111;
+  }
+  #hold {
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, #111 14%, #fff);
+    overflow: hidden;
+  }
+  #hold i {
+    display: block;
+    height: 100%;
+    width: 100%;
+    background: #111;
+    transform-origin: left center;
+    animation: hold 5s linear forwards;
+  }
+  @keyframes hold { to { transform: scaleX(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    #hold i { animation: none; }
+    button:active:not(:disabled) { transform: none; }
   }
   [hidden] { display: none !important; }
 </style>
@@ -135,20 +216,25 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
 <body>
 <header class="nav">Amazon Package QR Scanner</header>
 <main id="home" class="screen">
-  <button id="scan" type="button" disabled>Scan</button>
+  <button id="scan" type="button" disabled aria-describedby="note">Scan</button>
+  <p id="note" aria-live="polite">Getting ready…</p>
 </main>
 <section id="cam" class="screen" hidden>
   <video id="video" autoplay playsinline muted></video>
   <div id="veil">
-    <p id="status">Looking for package ID…</p>
+    <p id="status" aria-live="polite">Looking for package ID…</p>
     <div id="finder" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
     <p id="hint">Fit the scanner screen in the frame</p>
     <button id="cancel" type="button">Cancel</button>
   </div>
 </section>
 <section id="result" class="screen" hidden>
-  <div id="qr"></div>
-  <p id="pid"></p>
+  <div class="ticket">
+    <div id="qr"></div>
+    <p id="pid" aria-live="polite"></p>
+    <p id="holdnote">Closes in 5 seconds</p>
+    <div id="hold" aria-hidden="true"><i></i></div>
+  </div>
   <button id="dismiss" type="button">Dismiss</button>
 </section>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -225,6 +311,7 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
   const qrEl = document.getElementById("qr");
   const pidEl = document.getElementById("pid");
   const scanBtn = document.getElementById("scan");
+  const noteEl = document.getElementById("note");
   const thumb = document.createElement("canvas");
 
   let stream = null;
@@ -238,6 +325,11 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     home.hidden = which !== "home";
     cam.hidden = which !== "cam";
     result.hidden = which !== "result";
+  }
+
+  function note(text, isError) {
+    noteEl.textContent = text;
+    noteEl.classList.toggle("error", !!isError);
   }
 
   function boxBlur(src, w, h, r) {
@@ -519,13 +611,14 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
 
   scanBtn.onclick = async () => {
     if (typeof Tesseract === "undefined" || typeof qrcode !== "function") {
-      alert("The scanner libraries failed to load. Check your connection.");
+      note("The scanner failed to load. Check your connection, then try Scan again.", true);
       return;
     }
     track("scan_started");
     clearTimeout(timer);
     const gen = ++generation;
     statusEl.textContent = "Loading reader…";
+    note("Point the camera at the scanner screen.");
     scanBtn.disabled = true;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -538,7 +631,7 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
       });
     } catch (err) {
       scanBtn.disabled = false;
-      alert("Could not open the camera. Use HTTPS or localhost, and allow camera access.");
+      note("Could not open the camera. Allow camera access, then try Scan again.", true);
       return;
     }
     if (gen !== generation) {
@@ -561,6 +654,7 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
     generation++;
     clearTimeout(timer);
     stopCamera();
+    note("Point the camera at the scanner screen.");
     show("home");
   }
 
@@ -572,6 +666,7 @@ posthog.init("phc_CfgFp3faexuhjko8XsyB6qBbet8BRyj3M9zfhEXWTq3f", {
   }
   if (typeof Tesseract !== "undefined") getWorker();
 
+  note("Point the camera at the scanner screen.");
   scanBtn.disabled = false;
 </script>
 </body>
